@@ -1,0 +1,62 @@
+package signaldakez;
+
+message IdakeKeyDigestMessage {
+  optional bytes  Digest          = 1;
+} // D[a]=Dgst(g^E[a])
+
+message IdakePreKeyMessage {
+  optional bytes  Prekey          = 1;
+} // g^E[b]
+
+message IdakeIdKeyMessage {
+  optional bytes  idKey           = 1;
+  optional uint32 regId		  = 2;
+}
+
+message IdakeEncryptedIdKeyMessage {
+  optional bytes  preKey	  = 1;
+  optional bytes  encIdKey        = 2;
+} // {g^E[a], CE[0]=SymE(k[0], {g^I[a], ID[a]})}
+
+message IdakeRsignedIdKeyMessage {
+  optional bytes  idKey           = 1;
+  optional uint32 regId		  = 2;
+  optional bytes  rsig            = 3;
+} //{g^I[b], ID[b], P[b]}
+
+message IdakeEncryptedRsIdKMessage {
+  optional bytes  encRsIdKeyMsg   = 1;
+} // CE[1]=SymSE(K[1], {g^I[b], ID[b], P[b]})
+
+message IdakeEncryptedRsigMessage {
+  optional bytes  encRsig         = 1;
+} // CE[2]=SymSE(k[2], P[a])
+
+message IdakeMessage {
+  oneof message {
+    IdakeKeyDigestMessage kd        = 1;
+    IdakePreKeyMessage    pk        = 2;
+    IdakeEncryptedIdKeyMessage eik  = 3;
+    IdakeEncryptedRsIdKMessage erik = 4;
+    IdakeEncryptedRsigMessage ersig = 5;
+  }
+}
+
+message OdakeIdMessage {
+  optional bytes  idKey           = 1;
+  optional uint32 regId		  = 2;
+  optional bytes  mac             = 3;
+  optional bytes  rsig            = 4;
+} // {g^I[a], ID[a], M, P}
+
+message OdakePreKeyMessage {
+  optional bytes  preKey          = 1;
+  optional uint32 rPKId           = 2;
+  optional uint32 rSPKId        = 3;
+  optional bytes  encIdMsg        = 4;
+  optional bytes  payload         = 5; // SignalMessage
+} // {g^E[a], i, CE, payload}
+
+//message SingleBlobMessage {
+//  optional bytes  blob            = 1;
+//} // used to serialize all other concrete blobs
