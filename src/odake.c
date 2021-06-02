@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2018-2021, HardenedVault Limited (https://hardenedvault.net)
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -215,6 +232,26 @@ int ratcheting_session_bob_calc_ss_odake(signal_buffer** shared_secret,
   return result;
 }
 
+int Odake_verify_signed_pre_key(ec_public_key* r_idkey, ec_public_key* r_spk,
+				const uint8_t* sig, size_t sig_len)
+{
+  int result = 0;
+  signal_buffer* ser_spk = NULL;
+  result = ec_public_key_serialize(&ser_spk, r_spk);
+  if(result < 0) {
+    goto complete;
+  }
+
+  result = curve_verify_signature(r_idkey,
+				  signal_buffer_data(ser_spk),
+				  signal_buffer_len(ser_spk),
+				  sig, sig_len);
+
+ complete:
+  signal_buffer_free(ser_spk);
+  return result;
+}
+
 //The idkey in the bundle is ignored, and a bundle for odake should not contain an idkey in the first place.
 int session_builder_process_pre_key_bundle_odake(session_builder *builder, session_pre_key_bundle *bundle)
 {
@@ -264,19 +301,9 @@ int session_builder_process_pre_key_bundle_odake(session_builder *builder, sessi
   if(signed_pre_key) {
     signal_buffer *signature = session_pre_key_bundle_get_signed_pre_key_signature(bundle);
 
-    signal_buffer *serialized_signed_pre_key = 0;
-    result = ec_public_key_serialize(&serialized_signed_pre_key, signed_pre_key);
-    if(result < 0) {
-      goto complete;
-    }
-
-    result = curve_verify_signature(their_identity_key,
-				    signal_buffer_data(serialized_signed_pre_key),
-				    signal_buffer_len(serialized_signed_pre_key),
-				    signal_buffer_data(signature),
-				    signal_buffer_len(signature));
-
-    signal_buffer_free(serialized_signed_pre_key);
+    result = Odake_verify_signed_pre_key(their_identity_key, signed_pre_key,
+					 signal_buffer_data(signature),
+					 signal_buffer_len(signature));
 
     if(result == 0) {
       signal_log(builder->global_context, SG_LOG_WARNING, "signature mismatch with idkey!");
@@ -692,12 +719,10 @@ int pre_key_odake_message_serialize(signal_buffer **buffer,
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "OdakeIdMessage", "to be encrypted as OdakePreKeyMessage::encidmsg",
 			   dumper->oid2str((const ProtobufCMessage*)&idmsg));
-      }
-      if (dump_ret < 0) {
-	result = dump_ret;
-	goto complete;
-      }
-      {
+	if (dump_ret < 0) {
+	  result = dump_ret;
+	  goto complete;
+	}
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeEncryptedIdKeyMessage", "to send",
 			   dumper->opk2str((const ProtobufCMessage*)&pkmsg));
@@ -983,7 +1008,7 @@ int pre_key_odake_message_post_deserialize(pre_key_odake_message* message,
 	result = dump_ret;
     }
 #endif
-  
+
 
  complete:
   signaldakez__odake_id_message__free_unpacked(idmsg, 0);
@@ -992,46 +1017,35 @@ int pre_key_odake_message_post_deserialize(pre_key_odake_message* message,
   return result;
 }
 
-static int session_builder_process_pre_key_odake_message_v0(session_builder *builder,
-							    session_state* state,
-							    pre_key_odake_message *message,
-							    uint32_t *unsigned_pre_key_id)
+int bob_parameters_from_pre_key_msg(signal_protocol_store_context* sctx,
+				    const pre_key_odake_message *message,
+				    bob_signal_protocol_parameters **bob_param)
 {
   int result = 0;
-  uint32_t unsigned_pre_key_id_result = 0;
   session_signed_pre_key *our_signed_pre_key = 0;
   ratchet_identity_key_pair *our_identity_key = 0;
   bob_signal_protocol_parameters *parameters = 0;
   session_pre_key *session_our_one_time_pre_key = 0;
-  ec_key_pair *our_one_time_pre_key = 0;
-  uint32_t local_registration_id = 0;
-  signal_buffer* sharedsec = 0;
-  signal_buffer* sign_payload = 0;
-  signal_buffer* mac = 0;
-  symskey ek;
-  symkey mk;
-  symkey assoctag;
 
-  result = signal_protocol_signed_pre_key_load_key(builder->store,
+  result = signal_protocol_signed_pre_key_load_key(sctx,
             &our_signed_pre_key,
             message->signed_pre_key_id);
   if(result < 0) {
     goto complete;
   }
 
-  result = signal_protocol_identity_get_key_pair(builder->store, &our_identity_key);
+  result = signal_protocol_identity_get_key_pair(sctx, &our_identity_key);
   if(result < 0) {
     goto complete;
   }
 
   if(message->has_pre_key_id) {
-    result = signal_protocol_pre_key_load_key(builder->store,
+    result = signal_protocol_pre_key_load_key(sctx,
 					      &session_our_one_time_pre_key,
 					      message->pre_key_id);
     if(result < 0) {
       goto complete;
     }
-    our_one_time_pre_key = session_pre_key_get_key_pair(session_our_one_time_pre_key);
   }
   /*
    * their_idkey is not used in odake, since it could only
@@ -1044,7 +1058,7 @@ static int session_builder_process_pre_key_odake_message_v0(session_builder *bui
     (&parameters,
      our_identity_key,
      session_signed_pre_key_get_key_pair(our_signed_pre_key),
-     our_one_time_pre_key,
+     session_pre_key_get_key_pair(session_our_one_time_pre_key),
      session_signed_pre_key_get_key_pair(our_signed_pre_key),
      ratchet_identity_key_pair_get_public(our_identity_key),
      message->alice_basekey);
@@ -1052,19 +1066,45 @@ static int session_builder_process_pre_key_odake_message_v0(session_builder *bui
     goto complete;
   }
 
-  result = signal_protocol_identity_get_local_registration_id(builder->store, &local_registration_id);
-  if(result < 0) {
+ complete:
+  SIGNAL_UNREF(our_identity_key);
+  SIGNAL_UNREF(our_signed_pre_key);
+  SIGNAL_UNREF(session_our_one_time_pre_key);
+  if(result >= 0) {
+    *bob_param = parameters;
+  } else {
+    SIGNAL_UNREF(parameters);
+  }
+  return result;
+}
+
+int pre_key_odake_message_handshake(signal_context *gctx,
+				    pre_key_odake_message *message,
+				    bob_signal_protocol_parameters *bob_param,
+				    uint32_t l_regid,
+				    signal_buffer** result_ss)
+{
+  int result = 0;
+  signal_buffer* sharedsec = 0;
+  signal_buffer* sign_payload = 0;
+  signal_buffer* mac = 0;
+  symskey ek;
+  symkey mk;
+  symkey assoctag;
+
+  if(pre_key_odake_message_is_post_deserialized(message)) {
+    result = SG_ERR_DUPLICATE_MESSAGE;
     goto complete;
   }
 
   result = ratcheting_session_bob_calc_ss_odake(&sharedsec,
-						parameters,
-						builder->global_context);
+						bob_param,
+						gctx);
   if(result < 0) {
     goto complete;
   }
 
-  result = Odake_derive_ek(builder->global_context,
+  result = Odake_derive_ek(gctx,
 			   signal_buffer_data(sharedsec),
 			   signal_buffer_len(sharedsec),
 			   &ek);
@@ -1072,7 +1112,7 @@ static int session_builder_process_pre_key_odake_message_v0(session_builder *bui
     goto complete;
   }
 
-  result = Odake_derive_mk(builder->global_context,
+  result = Odake_derive_mk(gctx,
 			   &ek, &mk);
   if(result < 0) {
     goto complete;
@@ -1088,25 +1128,25 @@ static int session_builder_process_pre_key_odake_message_v0(session_builder *bui
   result = dake_concat_sign_payload(&sign_payload,
 				    true,
 				    message->registration_id,
-				    local_registration_id,
+				    l_regid,
 				    message->alice_basekey,
-				    ec_key_pair_get_public(our_one_time_pre_key),
+				    ec_key_pair_get_public(bob_param->our_one_time_pre_key),
 				    (message->has_pre_key_id)?
 				    &message->pre_key_id:NULL);
   if(result < 0) {
     goto complete;
   }
 
-  result = dake_compute_assoctag(builder->global_context,
+  result = dake_compute_assoctag(gctx,
 				 message->alice_idkey,
 				 ec_key_pair_get_public((const ec_key_pair*)
-							our_identity_key),
+							bob_param->our_identity_key),
 				 &assoctag);
   if(result < 0) {
     goto complete;
   }
 
-  result = dake_mac_sign_payload(builder->global_context, &mac,
+  result = dake_mac_sign_payload(gctx, &mac,
 				 mk.a, sizeof(mk),
 				 signal_buffer_data(sign_payload),
 				 signal_buffer_len(sign_payload),
@@ -1123,11 +1163,11 @@ static int session_builder_process_pre_key_odake_message_v0(session_builder *bui
     goto complete;
   }
 
-  result = dake_rvrf(builder->global_context,
+  result = dake_rvrf(gctx,
 		     (const rsig*)signal_buffer_data(message->rsig),
 		     message->alice_idkey,
-		     ratchet_identity_key_pair_get_public(our_identity_key),
-		     ec_key_pair_get_public(our_one_time_pre_key),
+		     ratchet_identity_key_pair_get_public(bob_param->our_identity_key),
+		     ec_key_pair_get_public(bob_param->our_one_time_pre_key),
 		     signal_buffer_data(sign_payload),
 		     signal_buffer_len(sign_payload),
 		     assoctag.a,
@@ -1142,46 +1182,111 @@ static int session_builder_process_pre_key_odake_message_v0(session_builder *bui
     goto complete;
   }
 
-  //odake complete! initialize the session.
-  result =
-    session_state_init_session(builder->global_context,
-			       state,
-			       signal_buffer_data(sharedsec),
-			       signal_buffer_len(sharedsec),
-			       NULL,
-			       session_signed_pre_key_get_key_pair(our_signed_pre_key));
-  if(result < 0) {
-    goto complete;
-  }
-
-
-  session_state_set_local_registration_id(state, local_registration_id);
-  session_state_set_remote_registration_id(state, message->registration_id);
-  session_state_set_local_identity_key(state, ratchet_identity_key_pair_get_public(our_identity_key));
-  session_state_set_remote_identity_key(state, message->alice_idkey);
-  session_state_set_alice_base_key(state, message->alice_basekey);
-  session_state_set_session_version(state, CIPHERTEXT_CURRENT_VERSION);
-
-  if (message->has_pre_key_id &&
-      message->pre_key_id != PRE_KEY_MEDIUM_MAX_VALUE) {
-    unsigned_pre_key_id_result = message->pre_key_id;
-    result = true;
-  } else {
-    result = false;
-  }
-
  complete:
-  SIGNAL_UNREF(parameters);
-  SIGNAL_UNREF(our_identity_key);
-  SIGNAL_UNREF(our_signed_pre_key);
-  SIGNAL_UNREF(session_our_one_time_pre_key);
-  signal_buffer_bzero_free(sharedsec);
   signal_buffer_bzero_free(sign_payload);
   signal_buffer_free(mac);
   memset(&ek, 0, sizeof(ek));
   memset(&mk, 0, sizeof(mk));
   if(result >= 0) {
-    *unsigned_pre_key_id = unsigned_pre_key_id_result;
+    *result_ss = sharedsec;
+  } else {
+    signal_buffer_free(sharedsec);
+  }
+  return result;
+}
+
+int pre_key_odake_message_init_session(const pre_key_odake_message *message,
+				       const bob_signal_protocol_parameters *bob_param,
+				       uint32_t l_regid,
+				       signal_buffer* sharedsec,
+				       session_state* state,
+				       signal_context* gctx)
+{
+  if (!pre_key_odake_message_is_post_deserialized(message)) {
+    return SG_ERR_INVALID_MESSAGE;
+  }
+  int result =
+    session_state_init_session(gctx,
+			       state,
+			       signal_buffer_data(sharedsec),
+			       signal_buffer_len(sharedsec),
+			       NULL,
+			       bob_param->our_signed_pre_key);
+  if(result < 0) {
+    goto complete;
+  }
+
+  session_state_set_local_registration_id(state, l_regid);
+  session_state_set_remote_registration_id(state, message->registration_id);
+  session_state_set_local_identity_key(state, ratchet_identity_key_pair_get_public(bob_param->our_identity_key));
+  session_state_set_remote_identity_key(state, message->alice_idkey);
+  session_state_set_alice_base_key(state, message->alice_basekey);
+  session_state_set_session_version(state, CIPHERTEXT_CURRENT_VERSION);
+
+ complete:
+  return result;
+}
+
+int pre_key_odake_message_get_unsigned_pre_key_id(const pre_key_odake_message *message,
+						  uint32_t *unsigned_pre_key_id)
+{
+  int result = 0;
+  if (message->has_pre_key_id &&
+      message->pre_key_id != PRE_KEY_MEDIUM_MAX_VALUE) {
+    *unsigned_pre_key_id = message->pre_key_id;
+    result = true;
+  } else {
+    result = false;
+  }
+  return result;
+}
+
+static int session_builder_process_pre_key_odake_message_v0(session_builder *builder,
+							    session_state* state,
+							    pre_key_odake_message *message,
+							    uint32_t *unsigned_pre_key_id)
+{
+  int result = 0;
+  bob_signal_protocol_parameters *parameters = 0;
+  uint32_t local_registration_id = 0;
+  signal_buffer *sharedsec = 0;
+
+  result = bob_parameters_from_pre_key_msg(builder->store, message, &parameters);
+  if(result < 0) {
+    goto complete;
+  }
+
+  result = signal_protocol_identity_get_local_registration_id(builder->store, &local_registration_id);
+  if(result < 0) {
+    goto complete;
+  }
+
+  result = pre_key_odake_message_handshake(builder->global_context,
+					   message,
+					   parameters,
+					   local_registration_id,
+					   &sharedsec);
+  if(result < 0) {
+    goto complete;
+  }
+
+  //odake complete! initialize the session.
+  result = pre_key_odake_message_init_session(message,
+					      parameters,
+					      local_registration_id,
+					      sharedsec,
+					      state,
+					      builder->global_context);
+
+  if(result < 0) {
+    goto complete;
+  }
+
+ complete:
+  SIGNAL_UNREF(parameters);
+  signal_buffer_bzero_free(sharedsec);
+  if(result >= 0) {
+    return pre_key_odake_message_get_unsigned_pre_key_id(message, unsigned_pre_key_id);
   }
   return result;
 }

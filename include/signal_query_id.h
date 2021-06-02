@@ -23,6 +23,7 @@ typedef enum {
   
   KEYDATA,
   TRUST_LEVEL, // Used by functions changing the trust level of an identity key.
+  ID_LIST, // Used by functions to query all device id under a name.
   SIG_PUBKEY_LEN = (sizeof(keybytes) + 1),
 } Query_IdKey_Mode;
 

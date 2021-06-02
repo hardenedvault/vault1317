@@ -56,10 +56,10 @@ static DF_stlv_found(testapp_stlv_found)
   if (idakemsg) {
     // incoming_data contains an idakemsg
     do {
-      ret = axc_Idake_handle_msg(app->dctx_p, idakemsg,
+      ret = axc_Idake_handle_msg(&app->cachectx_p->base, idakemsg,
 				 &remote_addr, (const signal_buffer**)&lastauthmsg);
       if (ret < 0) {
-	axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+	axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 		"Failed to handle idakemsg with err %d", ret);
 	break;
       }
@@ -81,28 +81,28 @@ static DF_stlv_found(testapp_stlv_found)
       msgbuf = axc_buf_create(incoming_data, incoming_len);
       ret = axc_pre_key_message_process_dake(msgbuf,
 					     &remote_addr,
-					     &app->dctx_p->base, &plaintext);
+					     &app->cachectx_p->base.base, &plaintext);
       if (ret == AXC_ERR_NOT_A_PREKEY_MSG) {
-	if (axc_session_exists_initiated(&remote_addr, &app->dctx_p->base)) {
+	if (axc_dake_session_exists_initiated(&remote_addr, &app->cachectx_p->base)) {
 	  ret = axc_message_dec_from_ser_dake(msgbuf,
 					      &remote_addr,
-					      &app->dctx_p->base, &plaintext);
+					      &app->cachectx_p->base.base, &plaintext);
 	} else {
-	  axc_log(&app->dctx_p->base, AXC_LOG_INFO,
+	  axc_log(&app->cachectx_p->base.base, AXC_LOG_INFO,
 		  "received a signal message but no session from %d@%.*s exists, ignoring",
 		  remote_addr.device_id, (int)remote_addr.name_len, remote_addr.name);
 	  break;
 	}
       } else if (ret == AXC_ERR_INVALID_KEY_ID) {
-	axc_log(&app->dctx_p->base, AXC_LOG_INFO,
+	axc_log(&app->cachectx_p->base.base, AXC_LOG_INFO,
 		"received an odake prekey msg with an outdated prekey, ignoring");
 	break;
       } else if (ret < 0) {
-	axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+	axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 		"Failed to handle odakemsg with err %d", ret);
 	break;
       } else {
-	axc_log(&app->dctx_p->base, AXC_LOG_INFO,
+	axc_log(&app->cachectx_p->base.base, AXC_LOG_INFO,
 		"A new session is created with the odake prekey msg "
 		"correctly handled, and a prekey consumed, so update the bundle");
 	ret = testapp_Odake_write_bundle(app);
@@ -126,7 +126,7 @@ DF_do_parse(testapp_parse_msg)
 DF_parser_log(testapp_log)
 {
   test_application* app = (test_application*)parser;
-  axc_default_log(AXC_LOG_DEBUG, msg, len, &app->dctx_p->base);
+  axc_default_log(AXC_LOG_DEBUG, msg, len, &app->cachectx_p->base.base);
 }
 
 const parser_methods pm_testapp = {
@@ -172,11 +172,11 @@ int testapp_send_msg(test_application* app, axc_buf* plain_text)
 			   &app->cinst.peer_sa)->sun_path));
 
   result = axc_msg_enc_and_ser_dake(plain_text, &remote_addr,
-				    &app->dctx_p->base,
+				    &app->cachectx_p->base.base,
 				    &ciphertext);
 
   if (result < 0) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "Failed to encrypt message with err %d", result);
     goto complete;
   }
@@ -219,7 +219,7 @@ int testapp_connect(test_application* app)
   do {
     fd_t sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock == -1) {
-      axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+      axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	      "Failed to obtain socket with errno %d", errno);
       ret = -1;
       break;
@@ -233,7 +233,7 @@ int testapp_connect(test_application* app)
     struct stat info;
     if (0 == stat(self_sock_path, &info) && ((info.st_mode & S_IFMT) == S_IFSOCK)) {
       // Leave other possibilities to the failure of bind()
-      axc_log(&app->dctx_p->base, AXC_LOG_WARNING,
+      axc_log(&app->cachectx_p->base.base, AXC_LOG_WARNING,
 	      "Unlinking remaining domain socket file %s", self_sock_path);
       unlink(self_sock_path);
     }
@@ -249,7 +249,7 @@ int testapp_listen(test_application* app)
   struct stat info;
   if (0 == stat(self_sock_path, &info) && ((info.st_mode & S_IFMT) == S_IFSOCK)) {
     // Leave other possibilities to the failure of bind()
-    axc_log(&app->dctx_p->base, AXC_LOG_WARNING,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_WARNING,
 	    "Unlinking remaining domain socket file %s", self_sock_path);
     unlink(self_sock_path);
   }
@@ -343,19 +343,19 @@ int testapp_Idake_start(test_application* app)
   signal_protocol_address remote_addr = {0, 0, 0};
   signal_buffer* kdmsg = NULL;
   void* hdr_to_send = NULL;
-  if (!app->dctx_p) {
+  if (!app->cachectx_p) {
     ret = -1;
     goto complete;
   }
   if (!app->ui_meth || !app->ui || !app->tlv_ctx.desc) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "test app has not initialized!");
     ret = -1;
     goto complete;
   }
 
   if (!app->cinst.bev_to_peer) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "test app has not connected to peer!");
     ret = -1;
     goto complete;
@@ -364,7 +364,7 @@ int testapp_Idake_start(test_application* app)
   sigaddr_decode(&remote_addr,
 		 basename(((const struct sockaddr_un*)
 			  &app->cinst.peer_sa)->sun_path));
-  ret = axc_Idake_start_for_addr(app->dctx_p, &remote_addr, (const signal_buffer**)&kdmsg);
+  ret = axc_Idake_start_for_addr(&app->cachectx_p->base, &remote_addr, (const signal_buffer**)&kdmsg);
   if (ret < 0)
     goto complete;
   {
@@ -388,16 +388,16 @@ int testapp_Odake_write_bundle(test_application* app)
   size_t erridx = 0;
   int ret = 0;
 
-  ret = axc_bundle_collect(1, &app->dctx_p->base, &bundle);
+  ret = axc_bundle_collect(1, &app->cachectx_p->base.base, &bundle);
   if (ret < 0) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "Failed to collect prekey, bundle!");
     goto complete;
   }
 
   ret = axc_prekeybundle2sexp(&s_bundle, &erridx, axc_bundle_get_reg_id(bundle), bundle);
   if (ret) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "Failed to convert bundle %p to s expression at %z!", bundle, erridx);
     goto complete;
   }
@@ -405,14 +405,14 @@ int testapp_Odake_write_bundle(test_application* app)
   ret = snprintf(bundle_path, sizeof(bundle_path), "%s.bundle",
 		 ((const struct sockaddr_un*)&app->cinst.self_sa)->sun_path);
   if (ret > sizeof(bundle_path)) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "Path for bundle file too long!");
     goto complete;
   }
 
   ret = axc_sexp2file(s_bundle, bundle_path);
   if (ret)
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "Failed to write bundle to %s!", bundle_path);
 
  complete:
@@ -434,19 +434,19 @@ int testapp_Odake_start(test_application* app)
   axc_buf* b_spk = NULL;
   axc_buf* b_opk = NULL;
 
-  if (!app->dctx_p) {
+  if (!app->cachectx_p) {
     ret = -1;
     goto complete;
   }
   if (!app->ui_meth || !app->ui || !app->tlv_ctx.desc) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "test app has not initialized!");
     ret = -1;
     goto complete;
   }
 
   if (!app->cinst.bev_to_peer) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "test app has not connected to peer!");
     ret = -1;
     goto complete;
@@ -459,25 +459,25 @@ int testapp_Odake_start(test_application* app)
   ret = snprintf((char*)axc_buf_get_data(bundle_path), axc_buf_get_len(bundle_path),
 		 "%s%s", un_path, bundle_suffix);
   if (ret > axc_buf_get_len(bundle_path)) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "Path for bundle file too long!");
     goto complete;
   }
   sigaddr_decode(&remote_addr, basename(un_path));
   gcret = axc_file2sexp(&s_bundle, (const char*)axc_buf_get_data(bundle_path));
   if (gcret) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "failed to read the bundle as sexp: %d", gcret);
     ret = -1;
     goto complete;
   }
 
   ret = axc_sexp2prekeybundle(&gcret,
-			      app->dctx_p->base.axolotl_global_context_p,
+			      app->cachectx_p->base.base.axolotl_global_context_p,
 			      s_bundle, &bundle);
 
   if (gcret) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "failed to deserialize the bundle in sexp: %d", gcret);
 
     goto complete;
@@ -486,7 +486,7 @@ int testapp_Odake_start(test_application* app)
   ret = ec_public_key_serialize(&b_spk,
 				session_pre_key_bundle_get_signed_pre_key(bundle));
   if (ret < 0) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "The spk in the bundle is invalid");
     goto complete;
   }
@@ -494,20 +494,19 @@ int testapp_Odake_start(test_application* app)
   ret = ec_public_key_serialize(&b_opk,
 				session_pre_key_bundle_get_pre_key(bundle));
   if (ret < 0) {
-    axc_log(&app->dctx_p->base, AXC_LOG_ERROR,
+    axc_log(&app->cachectx_p->base.base, AXC_LOG_ERROR,
 	    "The opk in the bundle is invalid");
     goto complete;
   }
 
   ret
-    = axc_session_from_bundle_dake(session_pre_key_bundle_get_pre_key_id(bundle),
-				   b_opk,
-				   session_pre_key_bundle_get_signed_pre_key_id(bundle),
-				   b_spk,
-				   session_pre_key_bundle_get_signed_pre_key_signature(bundle),
-				   NULL,
-				   &remote_addr,
-				   &app->dctx_p->base);
+    = axc_session_from_bundle_dake_noidkey(session_pre_key_bundle_get_pre_key_id(bundle),
+					   b_opk,
+					   session_pre_key_bundle_get_signed_pre_key_id(bundle),
+					   b_spk,
+					   session_pre_key_bundle_get_signed_pre_key_signature(bundle),
+					   &remote_addr,
+					   &app->cachectx_p->base.base);
 
  complete:
   {
@@ -524,7 +523,7 @@ void testapp_cleanup(test_application* app)
 {
   if (app->ui_meth && app->ui_meth->online)
     app->ui_meth->online(app->ui, false);
-  axc_context_dake_destroy_all((axc_context*)app->dctx_p);
+  cachectx_destroy_all((axc_context*)app->cachectx_p);
   if (app->evsignal) {
     event_free(app->evsignal);
     app->evsignal = NULL;
@@ -584,6 +583,7 @@ int testapp_axc_ctx_init(test_application* app,
   int ret = 0;
   char cwd[UNIX_PATH_MAX];
   char db_fn[UNIX_PATH_MAX];
+  uint32_t faux_id = 0;
   if(!getcwd(cwd, sizeof(cwd)))
     return -1;
 
@@ -591,19 +591,24 @@ int testapp_axc_ctx_init(test_application* app,
   db_fn[UNIX_PATH_MAX - 1] = '\0';
   if (strlen(db_fn) < ret) return -1;
 
-  ret = axc_context_dake_create(&app->dctx_p);
+  ret = cachectx_create(&app->cachectx_p);
   if (ret != 0) return ret;
-  ret = axc_context_set_db_fn(&app->dctx_p->base, db_fn, strlen(db_fn));
+  ret = axc_context_set_db_fn(&app->cachectx_p->base.base, db_fn, strlen(db_fn));
   if (ret != 0) return ret;
   if (log_func == NULL) log_func = axc_default_log;
-  axc_context_set_log_func(&app->dctx_p->base, log_func);
-  axc_context_set_log_level(&app->dctx_p->base, log_level);
-  ret = axc_init_with_imp(&app->dctx_p->base, &axc_session_store_tmpl,
+  axc_context_set_log_func(&app->cachectx_p->base.base, log_func);
+  axc_context_set_log_level(&app->cachectx_p->base.base, log_level);
+  cachectx_bind_backend(app->cachectx_p, &axc_session_store_tmpl);
+  ret = axc_init_with_imp(&app->cachectx_p->base.base, &cachectx_sess_store_tmpl,
 			  &axc_pre_key_store_tmpl, &axc_signed_pre_key_store_tmpl,
 			  &axc_dakes_identity_key_store_tmpl, &axc_crypto_provider_tmpl);
 #ifdef DUMPMSG
-  axc_context_dake_set_dumper(app->dctx_p, &pbdumper_sexp);
+  axc_context_dake_set_dumper(&app->cachectx_p->base, &pbdumper_sexp);
 #endif
+  ret = signal_protocol_key_helper_generate_registration_id(&faux_id, 1,
+							    app->cachectx_p->base.base.axolotl_global_context_p);
+
+  cachectx_set_faux_regid(app->cachectx_p, faux_id);
   if (ret != 0) return ret;
-  ret = axc_install(&app->dctx_p->base);
+  ret = axc_install(&app->cachectx_p->base.base);
 }

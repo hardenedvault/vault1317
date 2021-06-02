@@ -50,6 +50,9 @@ int ratcheting_session_bob_calc_ss_odake(signal_buffer** shared_secret,
 					 bob_signal_protocol_parameters *parameters,
 					 signal_context *global_context);
 
+int Odake_verify_signed_pre_key(ec_public_key* r_idkey, ec_public_key* r_spk,
+				const uint8_t* sig, size_t sig_len);
+
 //The idkey in the bundle is ignored, and a bundle for odake should not contain an idkey in the first place.
 int session_builder_process_pre_key_bundle_odake(session_builder *builder, session_pre_key_bundle *bundle);
 
@@ -92,6 +95,26 @@ int pre_key_odake_message_is_post_deserialized(const pre_key_odake_message* mess
 
 int pre_key_odake_message_post_deserialize(pre_key_odake_message* message,
 					   const uint8_t* ek_buf, size_t ek_len);
+
+int bob_parameters_from_pre_key_msg(signal_protocol_store_context* sctx,
+				    const pre_key_odake_message *message,
+				    bob_signal_protocol_parameters **bob_param);
+
+int pre_key_odake_message_handshake(signal_context *gctx,
+				    pre_key_odake_message *message,
+				    bob_signal_protocol_parameters *bob_param,
+				    uint32_t l_regid,
+				    signal_buffer** result_ss);
+
+int pre_key_odake_message_init_session(const pre_key_odake_message *message,
+				       const bob_signal_protocol_parameters *bob_param,
+				       uint32_t l_regid,
+				       signal_buffer* sharedsec,
+				       session_state* state,
+				       signal_context* gctx);
+
+int pre_key_odake_message_get_unsigned_pre_key_id(const pre_key_odake_message *message,
+						  uint32_t *unsigned_pre_key_id);
 
 int pre_key_odake_message_create(pre_key_odake_message **message,
 				 uint8_t version,

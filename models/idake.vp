@@ -1,0 +1,88 @@
+// SPDX-FileCopyrightText: © 2021, HardenedVault Limited (https://hardenedvault.net)
+// SPDX-License-Identifier: GPL-3.0-only
+
+attacker[active]
+ 
+principal Alice[
+	knows public c0, c1, c2, c3, c4, c5, c6, c7
+	knows private ia, id_a
+	generates ea
+	gea = G^ea
+	h_gea = HASH(gea)
+]
+Alice -> Bob: h_gea
+
+principal Bob[
+	knows public c0, c1, c2, c3, c4, c5, c6, c7
+	knows private ib, id_b
+	generates eb
+	geb = G^eb
+] 
+Bob -> Alice: geb
+ 
+principal Alice[
+	gba = geb^ea
+	gia = G^ia
+	k0 = HKDF(c0, gba, nil)
+	k1 = HKDF(c1, gba, nil)
+	k2 = HKDF(c2, gba, nil)
+	CE0 = ENC(k0, CONCAT(gia, id_a))
+]
+Alice -> Bob: gea, CE0
+
+principal Bob[
+	gib = G^ib
+	_ = ASSERT(HASH(gea), h_gea)?
+	gab = gea^eb
+	kb0 = HKDF(c0, gab, nil)
+	kb1 = HKDF(c1, gab, nil)
+	kb2 = HKDF(c2, gab, nil)
+	p_ia, sn_a = SPLIT(DEC(kb0, CE0))
+
+	T = HKDF(c3, CONCAT(p_ia, gib), nil)
+	Pb = RINGSIGN(ib, p_ia, gea, CONCAT(c4, CONCAT(sn_a, id_b), CONCAT(gea, geb), T))
+	CE1 = ENC(kb1, CONCAT(gib, id_b, Pb))
+]
+Bob -> Alice: CE1
+
+principal Alice[
+	p_ib, sn_b, rs_b = SPLIT(DEC(k1, CE1))
+	T2 = HKDF(c3, CONCAT(gia, p_ib), nil)
+	_ = RINGSIGNVERIF(p_ib, gia, gea, CONCAT(c4, CONCAT(id_a, sn_b), CONCAT(gea, geb), T2), rs_b)?
+	Pa = RINGSIGN(ia, p_ib, geb, CONCAT(c5, CONCAT(id_a, sn_b), CONCAT(gea, geb), T2))
+	CE2 = ENC(k2, Pa)
+]
+
+// simplified double-ratchet model used in exemplar models for signal
+principal Alice[
+	generates m1, ea1
+	gea1 = G^ea1
+	r0a, k0a = HKDF(gba, nil, nil)
+	r1a, k1a = HKDF(geb^ea1, r0a, nil)
+	ek1a, ek2a = HKDF(MAC(k1a, nil), nil, nil)
+	e1 = AEAD_ENC(ek1a, m1, HASH(gia, p_ib, gea1))
+]
+
+Alice -> Bob: CE2, gea1, e1
+
+principal Bob[
+	rs_a = DEC(kb2, CE2)
+	_ = RINGSIGNVERIF(p_ia, gib, geb, CONCAT(c5, CONCAT(sn_a, id_b), CONCAT(gea, geb), T), rs_a)?
+]
+
+// simplified double-ratchet model used in exemplar models for signal
+principal Bob[
+	r0b, k0b = HKDF(gab, nil, nil)
+	r1b, k1b = HKDF(gea1^eb, r0b, nil)
+	ek1b, ek2b = HKDF(MAC(k1b, nil), nil, nil)
+	m1_d = AEAD_DEC(ek1b, e1, HASH(p_ia, gib, gea1))?
+]
+
+phase[1]
+
+queries[
+	confidentiality? m1
+        authentication? Bob -> Alice: geb
+	authentication? Alice -> Bob: gea
+]
+

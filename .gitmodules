@@ -1,6 +1,3 @@
-[submodule "libsignal-protocol-c"]
-	path = libsignal-protocol-c
-	url = https://github.com/signalapp/libsignal-protocol-c
 [submodule "axc"]
 	path = axc
-	url = https://github.com/hardenedvault/axc
+	url = https://github.com/hardenedvault/axc.git

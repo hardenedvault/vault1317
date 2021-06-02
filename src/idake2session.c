@@ -12,9 +12,11 @@ static DF_auth_succeeded(a2s)
   a2s_data* adata = (a2s_data*)asdata;
   session_record* record = NULL;
   session_state* state = NULL;
+  signal_protocol_address real_addr = *adata->addr;
+  real_addr.device_id = auth->regids[1];
   signal_lock(adata->sctx->global_context);
   result = signal_protocol_session_load_session(adata->sctx, &record,
-						adata->addr);
+						&real_addr);
   if (result < 0)
     goto complete;
 
@@ -31,14 +33,24 @@ static DF_auth_succeeded(a2s)
     goto complete;
 
   result = signal_protocol_session_store_session(adata->sctx,
-						 adata->addr,
+						 &real_addr,
 						 record);
   if (result < 0)
     goto complete;
 
-  result = signal_protocol_identity_save_identity(adata->sctx,
-						  adata->addr,
-						  auth->their_ik_pub);
+  result = signal_protocol_identity_is_trusted_identity(adata->sctx,
+							&real_addr,
+							auth->their_ik_pub);
+  if (result < 0)
+    goto complete;
+
+  // "untrusted" key here suggests conflict device id, so not to save.
+  if (result > 0) {
+    int save_result = signal_protocol_identity_save_identity(adata->sctx,
+							     &real_addr,
+							     auth->their_ik_pub);
+    if (save_result < 0) result = save_result;
+  }
   adata->idake_complete = true;
  complete:
   SIGNAL_UNREF(record);
@@ -64,6 +76,19 @@ auth_node* auth_node_new(IdakeAuthInfo* auth,
   return new_node;
 }
 
+auth_node* auth_node_create_on_list(cl_node** l_auth_head,
+				    IdakeAuthInfo* auth,
+				    const signal_protocol_address* addr)
+{
+  auth_node* anode = auth_node_new(auth, addr);
+  do {
+    if (!anode)
+      break;
+    cl_insert_after(l_auth_head, &anode->cl);
+  } while(0);
+  return anode;
+}
+
 void auth_node_free(auth_node* node)
 {
   if (node) {
@@ -87,11 +112,28 @@ IdakeAuthInfo* auth_node_get_auth(auth_node* node)
 auth_node* auth_node_find_by_addr(cl_node** l_auth_head,
 				  const signal_protocol_address* addr)
 {
-  cl_node** curp;
-  CL_FOREACH(curp, l_auth_head) {
-    auth_node* node = CL_CONTAINER_OF((*curp), auth_node, cl);
-    if (0 == sigaddr_compare_name(auth_node_get_addr(node), addr))
-      return node;
+  if (addr && sigaddr_sane(addr)) {
+    cl_node** curp;
+    CL_FOREACH(curp, l_auth_head) {
+      auth_node* node = CL_CONTAINER_OF((*curp), auth_node, cl);
+      if (0 == sigaddr_compare_full(auth_node_get_addr(node), addr))
+	return node;
+    }
+  }
+  return NULL;
+}
+
+auth_node* auth_node_find_by_name(cl_node** l_auth_head,
+				  const char* name)
+{
+  if (name) {
+    cl_node** curp;
+    CL_FOREACH(curp, l_auth_head) {
+      auth_node* node = CL_CONTAINER_OF((*curp), auth_node, cl);
+      if (0 == strncmp(name, auth_node_get_addr(node)->name,
+		       auth_node_get_addr(node)->name_len))
+	return node;
+    }
   }
   return NULL;
 }
@@ -110,14 +152,12 @@ int Idake_start_for_addr(signal_protocol_store_context* sctx,
     if (result < 0)
       goto complete;
 
-    anode = auth_node_new(auth, addr);
+    anode = auth_node_create_on_list(l_auth_head, auth, addr);
     SIGNAL_UNREF(auth);
     if (!anode) {
       result = SG_ERR_NOMEM;
       goto complete;
     }
-
-    cl_insert_after(l_auth_head, &anode->cl);
   }
   auth = auth_node_get_auth(anode);
 

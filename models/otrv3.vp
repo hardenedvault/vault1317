@@ -1,0 +1,91 @@
+// see https://otr.cypherpunks.ca/Protocol-v3-4.1.1.html
+// SPDX-FileCopyrightText: © 2021, HardenedVault Limited (https://hardenedvault.net)
+// SPDX-License-Identifier: GPL-3.0-only
+
+attacker[active]
+
+principal bob[
+	knows public c0, c1, c2, c3
+	knows private ib
+	gib = G^ib
+	generates r
+	generates x
+	generates idx
+	gx = G^x
+	egx = ENC(r, gx)
+	hgx = HASH(gx)
+]
+Bob -> Alice: egx, hgx
+
+principal Alice[
+	knows public c0, c1, c2, c3
+	knows private ia
+	gia = G^ia
+	generates y
+	generates idy
+	gy = G^y
+]
+Alice -> Bob: gy
+
+principal bob[
+	gyx = gy^x
+	cb_b, ca_b = HKDF(c0, gyx, nil)
+	m1b_b, m1a_b, m2b_b, m2a_b = HKDF(c1, gyx, nil)
+	mb = MAC(m1b_b, CONCAT(gx, gy, gib, idx))
+	exb = ENC(cb_b, CONCAT(gib, idx, SIGN(ib, mb)))
+	mexb = MAC(m2b_b, exb)
+]
+Bob -> Alice: r, exb, mexb
+
+principal Alice[
+	p_x = DEC(r, egx)
+	_ = ASSERT(hgx, HASH(p_x))?
+	gxy = p_x^y
+	cb_a, ca_a = HKDF(c0, gxy, nil)
+	m1b_a, m1a_a, m2b_a, m2a_a = HKDF(c1, gxy, nil)
+	_ = ASSERT(mexb, MAC(m2b_a, exb))?
+	p_ib, r_idx, smb = SPLIT(DEC(cb_a, exb))
+	r_mb = MAC(m1b_a, CONCAT(p_x, gy, p_ib, r_idx))
+	_ = SIGNVERIF(p_ib, r_mb, smb)?
+	ma = MAC(m1a_a, CONCAT(gy, p_x, gia, idy))
+	exa = ENC(ca_a, CONCAT(gia, idy, SIGN(ia, ma)))
+	mexa = MAC(m2a_a, exa)
+]
+
+// Simplified data-exchange phase protocol,
+// with the "high-low end" and "okdmackey revealing" mechanisms excluded
+principal Alice[
+	generates y1, m
+	gy1 = G^y1
+	// if "high-low end" mechanisms included, when (gy > gx) use c2, otherwise use c3.
+	ek_a = HKDF(c2, gxy, nil)
+	mk_a = HASH(ek_a)
+	T = CONCAT(idy, r_idx, gy1, ENC(ek_a, m))
+	mT = MAC(mk_a, T)
+]
+
+Alice -> Bob: exa, mexa, T, mT
+
+principal bob[
+	_ = ASSERT(mexa, MAC(m2a_b, exa))?
+	p_ia, r_idy, sma = SPLIT(DEC(ca_b, exa))
+	r_ma = MAC(m1a_b, CONCAT(gy, gx, p_ia, r_idy))
+	_ = SIGNVERIF(p_ia, r_ma, sma)?
+]
+
+principal bob[
+	r2_idy, r2_idx, p_y1, em = SPLIT(T)
+	// if "high-low end" mechanisms included, when (gy > gx) use c2, otherwise use c3.
+	ek_b = HKDF(c2, gyx, nil)
+	mk_b = HASH(ek_b)
+	_ = ASSERT(mT, MAC(mk_b, T))?
+	m_r = DEC(ek_b, em)
+]
+
+phase[1]
+
+queries[
+        authentication? Bob -> Alice: exb
+	authentication? Alice -> Bob: exa
+	confidentiality? m
+]

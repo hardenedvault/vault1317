@@ -1,6 +1,24 @@
+/*
+ * Copyright (C) 2018-2021, HardenedVault Limited (https://hardenedvault.net)
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include <string.h>
 #include "axc_helper.h"
 #include "idake2session.h"
+#include "odake.h"
 
 int axc_context_dake_create(axc_context_dake ** ctx_pp) {
   if (!ctx_pp) {
@@ -21,10 +39,12 @@ int axc_context_dake_create(axc_context_dake ** ctx_pp) {
 }
 
 void axc_context_dake_destroy_all(axc_context * ctx_p) {
-  axc_context_dake* ctx_dake = (axc_context_dake*)ctx_p;
-  axc_context_destroy_all(&(ctx_dake->base));
-  while (ctx_dake->l_authinfo) {
-    auth_node_free(CL_CONTAINER_OF(cl_unlink_node(ctx_dake->l_authinfo), auth_node, cl));
+  if (ctx_p) {
+    axc_context_dake* ctx_dake = (axc_context_dake*)ctx_p;
+    while (ctx_dake->l_authinfo) {
+      auth_node_free(CL_CONTAINER_OF(cl_unlink_node(ctx_dake->l_authinfo), auth_node, cl));
+    }
+    axc_context_destroy_all(&(ctx_dake->base));
   }
 }
 
@@ -155,6 +175,7 @@ int axc_msg_enc_and_ser_dake(axc_buf * msg_p,
   ciphertext_message * cipher_msg_p = (void *) 0;
   signal_buffer * cipher_msg_data_p = (void *) 0;
   axc_buf * cipher_msg_data_cpy_p = (void *) 0;
+  axc_address rr_addr = *recipient_addr_p;
 
   if (!ctx_p) {
     fprintf(stderr, "%s: axc ctx is null!\n", __func__);
@@ -177,8 +198,15 @@ int axc_msg_enc_and_ser_dake(axc_buf * msg_p,
     goto cleanup;
   }
 
+  ret_val = axc_context_dake_get_real_regid((axc_context_dake*)ctx_p, recipient_addr_p,
+					    &rr_addr.device_id);
 
-  ret_val = session_cipher_create(&cipher_p, ctx_p->axolotl_store_context_p, recipient_addr_p, ctx_p->axolotl_global_context_p);
+  if (ret_val < 0) {
+    err_msg = "failed to get real recipient device id";
+    goto cleanup;
+  }
+
+  ret_val = session_cipher_create(&cipher_p, ctx_p->axolotl_store_context_p, &rr_addr, ctx_p->axolotl_global_context_p);
   if (ret_val) {
     err_msg = "failed to create session cipher";
     goto cleanup;
@@ -227,6 +255,7 @@ int axc_message_dec_from_ser_dake (axc_buf * msg_p,
   signal_message * ciphertext_p = (void *) 0;
   session_cipher * cipher_p = (void *) 0;
   axc_buf * plaintext_buf_p = (void *) 0;
+  axc_address rs_addr = *sender_addr_p;
 
   if (!ctx_p) {
     fprintf(stderr, "%s: axc ctx is null!\n", __func__);
@@ -249,7 +278,14 @@ int axc_message_dec_from_ser_dake (axc_buf * msg_p,
     goto cleanup;
   }
 
-  ret_val = session_cipher_create(&cipher_p, ctx_p->axolotl_store_context_p, sender_addr_p, ctx_p->axolotl_global_context_p);
+  ret_val = axc_context_dake_get_real_regid((axc_context_dake*)ctx_p, sender_addr_p,
+					    &rs_addr.device_id);
+
+  if (ret_val < 0) {
+    err_msg = "failed to get real sender device id";
+    goto cleanup;
+  }
+  ret_val = session_cipher_create(&cipher_p, ctx_p->axolotl_store_context_p, &rs_addr, ctx_p->axolotl_global_context_p);
   if (ret_val) {
     err_msg = "failed to create session cipher";
     goto cleanup;
@@ -362,7 +398,7 @@ int axc_pre_key_message_process_dake(axc_buf * pre_key_msg_serialized_p,
 {
   const char * err_msg = "";
   int ret_val = 0;
-
+  axc_address rr_addr = *remote_address_p;
   session_builder * session_builder_p = (void *) 0;
   pre_key_odake_message * pre_key_msg_p = (void *) 0;
   uint32_t new_id = 0;
@@ -413,8 +449,53 @@ int axc_pre_key_message_process_dake(axc_buf * pre_key_msg_serialized_p,
 
   } while (signal_protocol_pre_key_contains_key(ctx_p->axolotl_store_context_p, session_pre_key_get_id(signal_protocol_key_helper_key_list_element(key_l_p))));
 
+  {
+    axc_context_dake* dakectx_p = (axc_context_dake*)ctx_p;
+    bob_signal_protocol_parameters* bob_param = NULL;
+    uint32_t l_regid = 0;
+    axc_buf* ss = NULL;
+    session_record* record = NULL;
+    signal_lock(ctx_p->axolotl_global_context_p);
+    do {
+      ret_val = signal_protocol_identity_get_local_registration_id(ctx_p->axolotl_store_context_p,
+								   &l_regid);
+      if (ret_val < 0) break;
+      ret_val = bob_parameters_from_pre_key_msg(ctx_p->axolotl_store_context_p,
+						pre_key_msg_p, &bob_param);
+      if (ret_val < 0) break;
+      ret_val = pre_key_odake_message_handshake(ctx_p->axolotl_global_context_p,
+						pre_key_msg_p, bob_param, l_regid,
+						&ss);
+      if (ret_val < 0) break;
+      ret_val = axc_context_dake_set_real_regid(dakectx_p, remote_address_p, pre_key_msg_p->registration_id);
+      if (ret_val < 0) break;
+      rr_addr.device_id = pre_key_msg_p->registration_id;
 
-  ret_val = session_cipher_create(&session_cipher_p, ctx_p->axolotl_store_context_p, remote_address_p, ctx_p->axolotl_global_context_p);
+      ret_val = signal_protocol_session_load_session(ctx_p->axolotl_store_context_p, &record,
+						       &rr_addr);
+      if (ret_val < 0) break;
+      if(!session_record_is_fresh(record)) {
+	ret_val = session_record_archive_current_state(record);
+	if(ret_val < 0) break;
+      }
+      ret_val = pre_key_odake_message_init_session(pre_key_msg_p, bob_param, l_regid, ss,
+						   session_record_get_state(record),
+						   ctx_p->axolotl_global_context_p);
+      if(ret_val < 0) break;
+      ret_val = signal_protocol_session_store_session(ctx_p->axolotl_store_context_p,
+						     &rr_addr,
+						     record);
+    } while(0);
+    signal_unlock(ctx_p->axolotl_global_context_p);
+    SIGNAL_UNREF(bob_param);
+    SIGNAL_UNREF(record);
+    signal_buffer_bzero_free(ss);
+    if (ret_val < 0) {
+      err_msg = "failed to initialize session";
+      goto cleanup;
+    }
+  }
+  ret_val = session_cipher_create(&session_cipher_p, ctx_p->axolotl_store_context_p, &rr_addr, ctx_p->axolotl_global_context_p);
   if (ret_val) {
     err_msg = "failed to create session cipher";
     goto cleanup;
@@ -441,7 +522,7 @@ cleanup:
   }
 
   SIGNAL_UNREF(pre_key_msg_p);
-  SIGNAL_UNREF(session_cipher_p);
+  session_cipher_free(session_cipher_p);
   session_builder_free(session_builder_p);
   signal_protocol_key_helper_key_list_free(key_l_p);
 
@@ -568,6 +649,55 @@ int axc_query_identity_dake(const signal_protocol_address * addr_p,
   }
 }
 
+int axc_db_get_devid_list_by_name(signal_int_list ** l_devid, const char * name, size_t name_len, void * user_data) {
+  static const char stmt[] = "SELECT * FROM " IDENTITY_KEY_STORE_TABLE_NAME
+    " WHERE " IDENTITY_KEY_STORE_NAME_NAME " IS ?1;";
+
+  axc_context * axc_ctx_p = (axc_context *) user_data;
+  sqlite3 * db_p = (void *) 0;
+  sqlite3_stmt * pstmt_p = (void *) 0;
+  if (db_conn_open(&db_p, &pstmt_p, stmt, user_data)) return -1;
+
+  signal_int_list * devid_list_p = (void *) 0;
+  char * err_msg = (void *) 0;
+  int ret_val = 0;
+
+  if (sqlite3_bind_text(pstmt_p, 1, name, -1, SQLITE_TRANSIENT)) {
+    err_msg = "Failed to bind name when trying to find devids";
+    ret_val = -21;
+    goto cleanup;
+  }
+
+  devid_list_p = signal_int_list_alloc();
+
+  int step_result = sqlite3_step(pstmt_p);
+  while (step_result == SQLITE_ROW) {
+    signal_int_list_push_back(devid_list_p, sqlite3_column_int(pstmt_p, 4));
+
+    step_result = sqlite3_step(pstmt_p);
+  }
+
+  if (step_result != SQLITE_DONE) {
+    err_msg = "Error while retrieving result rows";
+    ret_val = -3;
+    goto cleanup;
+  }
+
+  (void) name_len;
+
+  *l_devid = devid_list_p;
+  ret_val = signal_int_list_size(*l_devid);
+
+cleanup:
+  if (ret_val < 0) {
+    if (devid_list_p) {
+      signal_int_list_free(devid_list_p);
+    }
+  }
+  db_conn_cleanup(db_p, pstmt_p, err_msg, __func__, axc_ctx_p);
+  return ret_val;
+}
+
 int axc_db_identity_is_trusted_wrapper(const signal_protocol_address * addr_p,
 				       uint8_t * key_data,
 				       size_t key_len,
@@ -581,9 +711,31 @@ int axc_db_identity_is_trusted_wrapper(const signal_protocol_address * addr_p,
       return SG_ERR_INVAL;
   case KEYDATA:
     return axc_query_identity_dake(addr_p, key_data, SIG_PUBKEY_LEN, user_data);
+  case ID_LIST:
+    return axc_db_get_devid_list_by_name((signal_int_list**)key_data,
+					 addr_p->name, addr_p->name_len,
+					 user_data);
   default:
     return axc_db_identity_is_trusted(addr_p, key_data, key_len, user_data);
   }
+}
+
+int axc_get_devid_list_by_name(signal_protocol_store_context *context,
+			       signal_int_list **l_devid,
+			       const char *name, size_t name_len)
+{
+  int ret = 0;
+  assert(context);
+  assert(context->identity_key_store.is_trusted_identity);
+
+  ret = context->identity_key_store.is_trusted_identity(NULL, NULL, COMPATIBILITY,
+							context->identity_key_store.user_data);
+  if (ret < 0)
+    return ret;
+
+  signal_protocol_address addr = { name, name_len, 0 };
+  return context->identity_key_store.is_trusted_identity(&addr, (uint8_t*)l_devid, ID_LIST,
+							context->identity_key_store.user_data);
 }
 
 extern int db_exec_single_change(sqlite3 * db_p,
@@ -667,6 +819,111 @@ int axc_db_set_identity_trusted_dake(const signal_protocol_address * addr_p,
 				       user_data);
 }
 
+int axc_get_devid_from_sig_dake(signal_protocol_store_context *sctx,
+				const char* name, size_t name_len, ec_public_key* r_spk,
+				const uint8_t* sig, size_t sig_len, int32_t* r_devid_p,
+				ec_public_key** r_idkey_pp)
+{
+  int ret = 0;
+  signal_int_list* l_devid = NULL;
+
+  ret = axc_get_devid_list_by_name(sctx, &l_devid, name, name_len);
+
+  if (ret < 0)
+    goto cleanup;
+
+  {
+    int id_num = ret;
+    int i = 0;
+    for(; i < id_num; i++) {
+      ec_public_key* r_idkey = NULL;
+      int32_t devid = signal_int_list_at(l_devid, i);
+      signal_protocol_address addr = { name, name_len, devid };
+      ret = sig_ext_query_idkey(sctx, &addr, &r_idkey);
+      if (ret < 0) break;
+      ret = Odake_verify_signed_pre_key(r_idkey, r_spk, sig, sig_len);
+      if (ret > 0) {
+        *r_devid_p = devid;
+	if (r_idkey_pp) {
+	  *r_idkey_pp = r_idkey;
+         SIGNAL_REF(*r_idkey_pp);
+	}
+      }
+      SIGNAL_UNREF(r_idkey);
+      if (ret == 0) continue;
+      else break;
+    }
+  }
+ cleanup:
+  signal_int_list_free(l_devid);
+  return ret;
+}
+
+int axc_session_from_bundle_dake_noidkey(uint32_t pre_key_id,
+					 axc_buf * pre_key_public_serialized_p,
+					 uint32_t signed_pre_key_id,
+					 axc_buf * signed_pre_key_public_serialized_p,
+					 axc_buf * signed_pre_key_signature_p,
+					 const axc_address * remote_address_p,
+					 axc_context * ctx_p)
+{
+  const char * err_msg = "";
+  axc_address rr_addr = *remote_address_p;
+  ec_public_key * signed_pre_key_public_p = (void *) 0;
+  ec_public_key * identity_key_public_p = (void *) 0;
+  axc_buf * identity_key_public_serialized_p = (void *) 0;
+  int ret = curve_decode_point(&signed_pre_key_public_p,
+                               axc_buf_get_data(signed_pre_key_public_serialized_p),
+                               axc_buf_get_len(signed_pre_key_public_serialized_p),
+                               ctx_p->axolotl_global_context_p);
+  if (ret) {
+    err_msg = "failed to deserialize signed public pre key";
+    goto cleanup;
+  }
+  ret = axc_get_devid_from_sig_dake(ctx_p->axolotl_store_context_p, remote_address_p->name,
+				    remote_address_p->name_len, signed_pre_key_public_p,
+				    axc_buf_get_data(signed_pre_key_signature_p),
+				    axc_buf_get_len(signed_pre_key_signature_p),
+				    &rr_addr.device_id, &identity_key_public_p);
+  if (ret < 0) {
+    err_msg = "failed to query remote identity key";
+    goto cleanup;
+  } else if (ret == 0) {
+    err_msg = "no match remote identity key found";
+    goto cleanup;
+  }
+
+  ret = axc_context_dake_set_real_regid((axc_context_dake*)ctx_p, remote_address_p,
+					rr_addr.device_id);
+
+  if (ret < 0) {
+    err_msg = "failed to set real device id";
+    goto cleanup;
+  }
+
+  ret = ec_public_key_serialize(&identity_key_public_serialized_p,
+				identity_key_public_p);
+  if (ret) {
+    err_msg = "failed to serialize remote identity key";
+    goto cleanup;
+  }
+
+  ret = axc_session_from_bundle_dake(pre_key_id, pre_key_public_serialized_p,
+				     signed_pre_key_id, signed_pre_key_public_serialized_p,
+				     signed_pre_key_signature_p, identity_key_public_serialized_p,
+				     &rr_addr, ctx_p);
+ cleanup:
+  SIGNAL_UNREF(signed_pre_key_public_p);
+  SIGNAL_UNREF(identity_key_public_p);
+  axc_buf_free(identity_key_public_serialized_p);
+  if (ret < 0) {
+    axc_log(ctx_p, AXC_LOG_ERROR, "%s: %s", __func__, err_msg);
+  }
+
+  return ret;
+}
+
+
 int axc_Idake_start_for_addr(axc_context_dake* dctx_p,
 			     const signal_protocol_address* addr,
 			     const signal_buffer** kdmsg)
@@ -692,6 +949,66 @@ const pbdumper* axc_context_dake_get_dumper(const axc_context_dake* dctx_p)
 void axc_context_dake_set_dumper(axc_context_dake* dctx_p, const pbdumper* dumper)
 {
   dctx_p->dumper = dumper;
+}
+
+int axc_context_dake_get_real_regid(axc_context_dake* dctx_p,
+				    const signal_protocol_address* r_addr,
+				    uint32_t* r_real_regid_p)
+{
+  auth_node* anode = auth_node_find_by_addr(&dctx_p->l_authinfo, r_addr);
+  if (!anode) {
+    return SG_ERR_NO_SESSION;
+  }
+
+  *r_real_regid_p = auth_node_get_auth(anode)->regids[1];
+  return 0;
+}
+
+int axc_context_dake_set_real_regid(axc_context_dake* dctx_p,
+				    const signal_protocol_address* r_addr,
+				    uint32_t r_real_regid)
+{
+  int ret = 0;
+  IdakeAuthInfo* auth = NULL;
+  auth_node* anode = auth_node_find_by_addr(&dctx_p->l_authinfo, r_addr);
+  if (!anode) {
+    ret = IdakeAuthInfo_create(&auth);
+    if (ret < 0)
+      goto cleanup;
+
+    anode = auth_node_create_on_list(&dctx_p->l_authinfo, auth, r_addr);
+    SIGNAL_UNREF(auth);
+    if (!anode) {
+      ret = SG_ERR_NOMEM;
+      goto cleanup;
+    }
+  }
+  auth = auth_node_get_auth(anode);
+  auth->regids[1] = r_real_regid;
+ cleanup:
+  return ret;
+}
+
+int axc_dake_session_exists_initiated(const axc_address * addr_p, axc_context_dake * dctx_p)
+{
+  axc_address real_addr = *addr_p;
+  int ret = axc_context_dake_get_real_regid(dctx_p, addr_p, (uint32_t*)&real_addr.device_id);
+  if (ret < 0) return ret;
+  return axc_session_exists_initiated(&real_addr, &dctx_p->base);
+}
+
+int axc_dake_terminate_session(const axc_address * addr_p, axc_context_dake * dctx_p)
+{
+  axc_address real_addr = *addr_p;
+  int ret = axc_context_dake_get_real_regid(dctx_p, addr_p, (uint32_t*)&real_addr.device_id);
+  if (ret < 0) return ret;
+  auth_node* node = auth_node_find_by_addr(&dctx_p->l_authinfo, addr_p);
+  if (node) {
+    cl_unlink_node(&node->cl);
+    auth_node_free(node);
+  }
+  return signal_protocol_session_delete_session(dctx_p->base.axolotl_store_context_p,
+						&real_addr);
 }
 
 const signal_protocol_identity_key_store axc_dakes_identity_key_store_tmpl = {

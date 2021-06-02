@@ -10,8 +10,7 @@ int test_client_init(test_application* app, const char* myname, const char* strs
   do {
     ret = testapp_axc_ctx_init(app, myname, rl_log_func, AXC_LOG_DEBUG);
     if (ret < 0) break;
-    ret = axc_get_device_id(&app->dctx_p->base, &myaddr.device_id);
-    if (ret < 0) break;
+    myaddr.device_id = cachectx_get_faux_regid(app->cachectx_p);
     myaddr.name = myname;
     myaddr.name_len = strlen(myname);
     _rlui.app = app;
@@ -31,7 +30,7 @@ int test_server_init(test_application* app, const char* name)
   do {
     ret = testapp_axc_ctx_init(app, name, NULL, AXC_LOG_DEBUG);
     if (ret < 0) break;
-    ret = axc_get_device_id(&app->dctx_p->base, &addr.device_id);
+    addr.device_id = cachectx_get_faux_regid(app->cachectx_p);
     if (ret < 0) break;
     addr.name = name;
     addr.name_len = strlen(name);
@@ -43,7 +42,6 @@ int test_server_init(test_application* app, const char* name)
 int test_gen_instance(test_application* app, const char* name)
 {
   int ret = -1;
-  axc_context* axc_ctx = NULL;
   uint32_t devid = 0;
   do {
     ret = testapp_axc_ctx_init(app, name, NULL, AXC_LOG_DEBUG);
@@ -51,8 +49,7 @@ int test_gen_instance(test_application* app, const char* name)
       fprintf(stderr, "Failed to initialize axc_ctx!\n");
       break;
     }
-    axc_ctx = &app->dctx_p->base;
-    ret = axc_get_device_id(axc_ctx, &devid);
+    devid = cachectx_get_faux_regid(app->cachectx_p);
     fprintf(stderr, "Instance for %s generated with device id %u.\n",
 	    name, devid);
   } while (0);

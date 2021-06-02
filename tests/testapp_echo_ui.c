@@ -17,7 +17,7 @@ DF_ui_show_message(echo_ui_show_msg)
 	   format, remote_addr.device_id,
 	   (int)(remote_addr.name_len), remote_addr.name,
 	   (int)len, message);
-  axc_log(&app->dctx_p->base, AXC_LOG_INFO, (const char*)axc_buf_get_data(plain));
+  axc_log(&app->cachectx_p->base.base, AXC_LOG_INFO, (const char*)axc_buf_get_data(plain));
   testapp_send_msg(app, plain);
   axc_buf_free(plain);
 }

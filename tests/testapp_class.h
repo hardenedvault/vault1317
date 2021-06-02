@@ -5,6 +5,7 @@
 #include "sockevents.h"
 #include "axc_helper.h"
 #include "idake2session.h"
+#include "cachectx.h"
 #include <sys/un.h>
 #include "sexp.h"
 
@@ -36,7 +37,7 @@ typedef struct ui_methods {
 
 typedef struct test_application {
   const ui_methods* ui_meth;
-  axc_context_dake* dctx_p;
+  axc_context_dake_cache* cachectx_p;
   client_instance cinst;
   struct event* evsignal;
   stlv_parser tlv_ctx;

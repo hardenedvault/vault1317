@@ -67,10 +67,20 @@ int axc_query_identity_dake(const signal_protocol_address * addr_p,
 			    uint8_t * key_data, size_t key_len,
 			    void * user_data);
 
+
+
 int axc_db_identity_is_trusted_wrapper(const signal_protocol_address * addr_p,
 				       uint8_t * key_data,
 				       size_t key_len,
 				       void * user_data);
+
+int axc_db_get_devid_list_by_name(signal_int_list ** l_devid,
+				  const char * name, size_t name_len,
+				  void * user_data);
+
+int axc_get_devid_list_by_name(signal_protocol_store_context *context,
+			       signal_int_list **l_devid,
+			       const char *name, size_t name_len);
 
 int axc_db_identity_save_or_trust(const signal_protocol_address * addr_p,
 				  uint8_t * key_data,
@@ -81,6 +91,19 @@ int axc_db_set_identity_trusted_dake(const signal_protocol_address * addr_p,
 				     bool trusted,
 				     void* user_data);
 
+int axc_get_devid_from_sig_dake(signal_protocol_store_context *sctx,
+				const char* name, size_t name_len, ec_public_key* r_spk,
+				const uint8_t* sig, size_t sig_len, int32_t* r_devid_p,
+				ec_public_key** r_idkey_pp);
+
+int axc_session_from_bundle_dake_noidkey(uint32_t pre_key_id,
+					 axc_buf * pre_key_public_serialized_p,
+					 uint32_t signed_pre_key_id,
+					 axc_buf * signed_pre_key_public_serialized_p,
+					 axc_buf * signed_pre_key_signature_p,
+					 const axc_address * remote_address_p,
+					 axc_context * ctx_p);
+
 int axc_Idake_start_for_addr(axc_context_dake* dctx_p,
 			     const signal_protocol_address* addr,
 			     const signal_buffer** kdmsg);
@@ -89,6 +112,17 @@ int axc_Idake_handle_msg(axc_context_dake* dctx_p,
 			 const Signaldakez__IdakeMessage* msg,
 			 const signal_protocol_address* addr,
 			 const signal_buffer** lastauthmsg);
+
+int axc_context_dake_get_real_regid(axc_context_dake* dctx_p,
+				    const signal_protocol_address* r_addr,
+				    uint32_t* r_real_regid_p);
+
+int axc_context_dake_set_real_regid(axc_context_dake* dctx_p,
+				    const signal_protocol_address* r_addr,
+				    uint32_t r_real_regid);
+
+int axc_dake_session_exists_initiated(const axc_address * addr_p, axc_context_dake * dctx_p);
+int axc_dake_terminate_session(const axc_address * addr_p, axc_context_dake * dctx_p);
 
 extern const signal_protocol_identity_key_store axc_dakes_identity_key_store_tmpl;
 

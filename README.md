@@ -1,3 +1,5 @@
+# Copyright (C) 2018-2021, HardenedVault Limited (https://hardenedvault.net)
+
 # vault1317
 
 A wicked messenger falls into adversity, But a faithful envoy brings healing. --- ???

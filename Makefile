@@ -5,7 +5,7 @@ SIGNAL_BUILD := libsignal-protocol-c/build
 SIGNAL_INC := -I$(SIGNAL_SRC) -I$(SIGNAL_SRC)/curve25519 -I$(SIGNAL_SRC)/curve25519/ed25519 -I$(SIGNAL_SRC)/curve25519/ed25519/additions -I$(SIGNAL_SRC)/curve25519/ed25519/nacl_includes -I$(AXC_SRC)/
 SIGNAL_TEST_INC := -I$(SIGNAL_TEST)
 RSIG_OBJS := src/hasher_signal.o src/keymap.o src/rsig.o
-SRC_OBJS := $(RSIG_OBJS) src/idake.o src/odake.o src/signal_query_id.o src/axc_helper.o src/idake2session.o src/clinklst.o src/sigaddr_holder.o src/pbdumper.o protobuf/DakesProtocol.pb-c.o
+SRC_OBJS := $(RSIG_OBJS) src/idake.o src/odake.o src/signal_query_id.o src/axc_helper.o src/idake2session.o src/clinklst.o src/sigaddr_holder.o src/pbdumper.o src/cachectx.o protobuf/DakesProtocol.pb-c.o
 SIGNAL_SHARED_LIB := $(SIGNAL_BUILD)/src/libsignal-protocol-c.so.2.3.2
 SIGNAL_TEST_OBJS_DIR := $(SIGNAL_TEST)/CMakeFiles/test_curve25519.dir
 SIGNAL_TEST_OBJS := $(SIGNAL_TEST_OBJS_DIR)/test_common_openssl.o $(SIGNAL_TEST_OBJS_DIR)/test_common.o
@@ -15,14 +15,15 @@ TESTAPP_OBJS := tests/sockevents.o tests/testapp_class.o tests/testapp_echo_ui.o
 .phony: clean
 
 %.o: %.c protobuf/DakesProtocol.pb-c.h
-	$(CC) -g -c -o $@ $(SIGNAL_INC) -I$(SIGNAL_TEST) -Iinclude -Itests -Iprotobuf -DDUMPMSG $<
+	$(CC) -g -c -fPIC -o $@ $(SIGNAL_INC) -I$(SIGNAL_TEST) -Iinclude -Itests -Iprotobuf \
+	-DDUMPMSG `pkg-config --cflags glib-2.0` $<
 
 protobuf/DakesProtocol.pb-c.c: protobuf/DakesProtocol.proto
 	make -C protobuf
 
 protobuf/DakesProtocol.pb-c.h: protobuf/DakesProtocol.pb-c.c
 
-libsignal-dakez.a: $(SRC_OBJS)
+libsignal-dakez.a: $(SRC_OBJS) protobuf/DakesProtocol.pb-c.h
 	ar cr $@ $(SRC_OBJS)
 
 $(SIGNAL_SHARED_LIB): $(SIGNAL_SRC)

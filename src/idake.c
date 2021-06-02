@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2018-2021, HardenedVault Limited (https://hardenedvault.net)
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include "idake.h"
 #include "hkdf.h"
 #include "signal_internal_types.h"
@@ -538,12 +555,11 @@ int Idake_handle_prekeymsg(IdakeAuthInfo* auth, signal_context *gctx,
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeIdKeyMessage", "to be encrypted as IdakeEncryptedIdKeyMessage::encidkey",
 			   dumper->idk2str((const ProtobufCMessage*)&idk));
-      }
-      if (dump_ret < 0) {
-	result = dump_ret;
-	break;
-      }
-      {
+	if (dump_ret < 0) {
+	  result = dump_ret;
+	  break;
+	}
+
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeEncryptedIdKeyMessage", "to send",
 			   dumper->eidk2str((const ProtobufCMessage*)&eidk));
@@ -1113,21 +1129,21 @@ int Idake_handle_idkeymsg(IdakeAuthInfo* auth, signal_context *gctx,
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeIdKeyMessage", "decrypted",
 			   dumper->idk2str((const ProtobufCMessage*)idk));
-      }
-      if (dump_ret < 0) {
-	result = dump_ret;
-	break;
-      }
-      {
+
+	if (dump_ret < 0) {
+	  result = dump_ret;
+	  break;
+	}
+
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeIdKeyMessage", "to be encrypted as IdakeEncryptedIdKeyMessage::encrsidkeymsg",
 			   dumper->rsidk2str((const ProtobufCMessage*)&rsidk));
-      }
-      if (dump_ret < 0) {
-	result = dump_ret;
-	break;
-      }
-      {
+
+	if (dump_ret < 0) {
+	  result = dump_ret;
+	  break;
+	}
+
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeEncryptedIdKeyMessage", "to send",
 			   dumper->ersidk2str((const ProtobufCMessage*)&ersidk));
@@ -1346,12 +1362,10 @@ int Idake_handle_ersidkmsg(IdakeAuthInfo* auth, signal_context *gctx,
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeIdKeyMessage", "decrypted",
 			   dumper->rsidk2str((const ProtobufCMessage*)rsidk));
-      }
-      if (dump_ret < 0) {
-	result = dump_ret;
-	break;
-      }
-      {
+	if (dump_ret < 0) {
+	  result = dump_ret;
+	  break;
+	}
 	dump_ret = dump_pb(gctx, dumper, __FILE__, __LINE__, __func__,
 			   "IdakeEncryptedRsigMessage", "to send",
 			   dumper->ersig2str((const ProtobufCMessage*)&ersig));
