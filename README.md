@@ -1,10 +1,56 @@
-# Copyright (C) 2018-2021, HardenedVault Limited (https://hardenedvault.net)
+# Copyright (C) 2018-2023, [HardenedVault Limited](https://hardenedvault.net) 
 
 # vault1317
 
 A wicked messenger falls into adversity, But a faithful envoy brings healing. --- ???
 
-ALERT: [<pre>T H I S   I S   N O T   B U T C H E R   B A Y</pre>](https://github.com/hardenedvault/vault1317/raw/master/vault1317.pdf)
+ALERT: <pre>T H I S   I S   N O T   B U T C H E R   B A Y</pre>
+--> [Vault1317 paper](https://hardenedvault.net/blog/2021-06-02-vault1317-thesis/) was written by neither academia bitch nor industry freak but a group of cypherpunks
+
+## What is vault1317?
+Vault1317 is a secure communication protocol that is designed to provide end-to-end encryption and protect metadata while preserving deniability. The protocol is based on the Signal Protocol, which is widely regarded as one of the most secure and privacy-preserving communication protocols available. Vault1317 extends the Signal Protocol by adding additional features such as metadata protection and deniability. Metadata protection is achieved through the use of additional handshaking protocols, which help to conceal the cryptographic identity of the sender and receiver, as well as other metadata associated with the communication.Deniability is achieved through the use of the symmetric encryption scheme with the consideration of deniability, as well asn the additional handshaking protocols mentioned before, which ensure that a sender can deny having sent a message if necessary, even if the message is intercepted or leaked.Vault1317 is a promising solution for those looking to communicate securely and privately while also protecting metadata and providing deniability of messages. 
+
+## What problem will vault1317 address?
+This project aims to solve several critical problems in modern communication:
+
+While instant messaging tools such as Signal and WhatsApp have adopted good encryption, they still lack the ability to provide deniability, which is crucial for secure communication. If an attacker gains control of one of the parties or the server (such as Relay) and leaks chat content during communication between Alice and Bob, both parties can deny their chat content, making it difficult to hold anyone accountable for the breach. This project addresses this issue by implementing a provably secure deniability mechanism that ensures the authenticity of chat content while providing plausible deniability for the communicating parties.
+
+Another critical issue in modern communication is metadata protection. During communication between Alice and Bob, their long-term identity public key is often exposed, making it easier for attackers to identify and track them. This project addresses this issue by concealing the long-term identity public key, ensuring that metadata remains private and secure.
+
+Finally, this project aims to address the centralization of modern social media and instant messaging tools, which can make them vulnerable to censorship and surveillance. By adapting Vault1317 to a decentralized platform such as Nostr or XMPP, the project ensures that communication is not controlled by a single entity and that users can communicate freely and securely.
+
+## What are the main differences between vault1317 and Signal, Matrix, and OTRv3/OTRv4?
+The implementation of end-to-end encryption in Signal and Matrix is similar, both consisting mainly of three parts: the offline handshake protocol x3dh, the communication protocol double ratchet, and the out-of-order message recovery protocol sesami. The main difference between vault1317 and them is that vault1317 has designed new online and offline handshake protocols to conceal public keys, and more identity information is concealed within the encrypted channel.
+
+OTRv3 was the first to implement public key conceal, but it could only be used for private chats and online handshakes, and it lacked compatibility with multiple clients and group chats.
+
+OTRv4 plans to use the double ratchet scheme for communication (with different details from the above protocols), and it has online and offline handshake protocols, but for some reason, it has given up public key concealing while vault1317 has reintroduced this feature.
+
+## Why is vault1317 has stronger deniability than Signal?
+vault1317 is committed to achieving deniability and adapting to more use cases. Signal, for various reasons (including only considering centralized servers), only uses the X3DH offline handshake protocol, that is, it attaches a signed prekey bundle to the server, which loses deniability.
+
+## Offline messages will reduce deniability in some sense. What solutions can vault1317 provide?
+It is best to use online handshakes instead of offline messages. When the other party comes online, they will receive the first online handshake message and complete the online handshake automatically. After that, the communication between the two parties will have the strongest deniability.
+
+## In a federation (such as XMPP) scenario where Alice and Bob communicate and go through a relay, does Bob's collusion with the relay mean a weakening of deniability?
+vault1317 implements zero-knowledge proof in the form of ring signature, and although the relay can grasp some metadata (such as IP, traffic size information, etc.), Bob is unable to prove the communication content with Alice to a third party (Alice can deny and saying it was forged by Bob), so deniability is still maintained in this scenario.
+
+## Can vault1317 do traffic obfuscation, such as implementing fixed packet sizes?
+Packet-level traffic obfuscation should not be the responsibility of the vault1317 protocol (which handles messages of varying lengths), but should be implemented at the level below or  just above TLS (organizing data segments into streams, and then send as packets).
+
+## Is it possible to use zk-SNARKs to remove the signature from the authentication process?
+This is a good idea. Although a ring signature is a signature already has deniability. SNARKs can theoretically only allow Alice and Bob to authenticate each other but cannot prove to a third party. In the case of Bob betraying Alice, even if Bob reveals the signature (via Ring Signature) to Chris, he still cannot prove who actually spoke, it’s pretty much like Bob betraying Alice by leaking a set of polynomial equations to the 3rd party. In this scenario, ring signature is a more suitable zero-knowledge proof method than zk-SNARKs.
+
+## Can vault1317 use the Secp256k1 ECC algorithm to achieve better compatibility with existing cryptocurrencies? If not, what is the best practice?
+There is no need for a wallet to prove identity when sending and receiving messages. If identity association is required, a master-subkey relationship similar to OpenPGP can be used: the private key of the cryptocurrency serves as the master key, and the vault1317 authentication public key as the subkey is signed. However, it may be better to use two completely independent keys.
+
+## Implementation & integration
+
+|Application | Decentralized approach | Protocol |
+|:-----------:|:-------------:|:-------:|
+| Pidgin/[lurch1317](https://github.com/hardenedvault/lurch/blob/lurch1317/README-lurch1317.md)| Federation | XMPP/OMEMO|
+| [Nostr/NIP-1317 (WIP)](https://github.com/nostr-protocol/nips/pull/591/files) | Relay       | Nostr |
+| Veilsay (WIP)      | Relay         | Nostr |
 
 
 ## DEMO
