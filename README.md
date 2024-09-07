@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2023, [HardenedVault Limited](https://hardenedvault.net) 
+# Copyright (C) 2018-2024, [HardenedVault](https://hardenedvault.net) 
 
 # vault1317
 
